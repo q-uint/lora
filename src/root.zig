@@ -4,7 +4,8 @@
 //!   [TS001-1.0.4] LoRa Alliance, LoRaWAN L2 1.0.4 Specification, October 2020.
 //!   [FIPS-197]    NIST, Advanced Encryption Standard (AES), FIPS 197.
 //!   [RFC4493]     Song, Poovendran, Lee, Iwata, The AES-CMAC Algorithm, June 2006.
-//!   [RP002]       LoRa Alliance, LoRaWAN Regional Parameters (cited, not implemented).
+//!   [RP002-1.0.5] LoRa Alliance, LoRaWAN Regional Parameters RP002-1.0.5.
+//!                 TS001-1.0.4 cites RP002-1.0.0, see region.zig.
 
 pub const mhdr = @import("mhdr.zig");
 pub const MHDR = mhdr.MHDR;
@@ -29,6 +30,9 @@ pub const Mic = mic.Mic;
 pub const phy_payload = @import("phy_payload.zig");
 
 pub const fcnt = @import("fcnt.zig");
+
+pub const region = @import("region.zig");
+pub const Region = region.Region;
 
 test {
     @import("std").testing.refAllDecls(@This());
