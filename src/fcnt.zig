@@ -39,25 +39,25 @@ pub fn infer(last: ?u32, received: u16) ?u32 {
 const testing = std.testing;
 
 test "first frame takes upper bits 0" {
-    try testing.expectEqual(@as(?u32, 0), infer(null, 0));
-    try testing.expectEqual(@as(?u32, 5), infer(null, 5));
+    try testing.expectEqual(0, infer(null, 0));
+    try testing.expectEqual(5, infer(null, 5));
 }
 
 test "increment within the same upper half" {
-    try testing.expectEqual(@as(?u32, 0x0003_0011), infer(0x0003_0010, 0x0011));
-    try testing.expectEqual(@as(?u32, 0x0003_F000), infer(0x0003_0010, 0xF000));
+    try testing.expectEqual(0x0003_0011, infer(0x0003_0010, 0x0011));
+    try testing.expectEqual(0x0003_F000, infer(0x0003_0010, 0xF000));
 }
 
 test "low 16 bits wrap" {
-    try testing.expectEqual(@as(?u32, 0x0004_0000), infer(0x0003_FFFF, 0x0000));
-    try testing.expectEqual(@as(?u32, 0x0004_0005), infer(0x0003_FFF0, 0x0005));
+    try testing.expectEqual(0x0004_0000, infer(0x0003_FFFF, 0x0000));
+    try testing.expectEqual(0x0004_0005, infer(0x0003_FFF0, 0x0005));
 }
 
 test "repeat of the last FCnt moves to the next upper value" {
-    try testing.expectEqual(@as(?u32, 0x0004_0010), infer(0x0003_0010, 0x0010));
+    try testing.expectEqual(0x0004_0010, infer(0x0003_0010, 0x0010));
 }
 
 test "no candidate above the 32-bit range" {
-    try testing.expectEqual(@as(?u32, null), infer(0xFFFF_FFFF, 0xFFFF));
-    try testing.expectEqual(@as(?u32, null), infer(0xFFFF_0010, 0x0005));
+    try testing.expectEqual(null, infer(0xFFFF_FFFF, 0xFFFF));
+    try testing.expectEqual(null, infer(0xFFFF_0010, 0x0005));
 }

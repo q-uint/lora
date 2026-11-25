@@ -8,17 +8,17 @@
 //!                 TS001-1.0.4 cites RP002-1.0.0, see region.zig.
 
 pub const mhdr = @import("mhdr.zig");
-pub const MHDR = mhdr.MHDR;
+pub const Mhdr = mhdr.Mhdr;
 pub const FType = mhdr.FType;
 pub const Major = mhdr.Major;
 pub const Direction = mhdr.Direction;
 
 pub const fhdr = @import("fhdr.zig");
-pub const FHDR = fhdr.FHDR;
+pub const Fhdr = fhdr.Fhdr;
 pub const FCtrl = fhdr.FCtrl;
 
 pub const mac_payload = @import("mac_payload.zig");
-pub const MACPayload = mac_payload.MACPayload;
+pub const MacPayload = mac_payload.MacPayload;
 
 pub const crypto = @import("crypto.zig");
 pub const Key = crypto.Key;

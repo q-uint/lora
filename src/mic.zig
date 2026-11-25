@@ -33,6 +33,8 @@ pub fn b0Block(dir: Direction, dev_addr: u32, fcnt: u32, msg_len: u8) [16]u8 {
 
 /// Computes the MIC over `msg`, which is the whole PHYPayload without the MIC.
 /// FRMPayload in `msg` must already be encrypted, [TS001-1.0.4] §4.3.3.
+///
+/// Asserts `msg.len <= 255`, [TS001-1.0.4] §4.4 Table 13.
 pub fn compute(nwk_s_key: *const Key, dir: Direction, dev_addr: u32, fcnt: u32, msg: []const u8) Mic {
     // len(msg) is a single octet in B0.
     std.debug.assert(msg.len <= 255);
@@ -44,9 +46,19 @@ pub fn compute(nwk_s_key: *const Key, dir: Direction, dev_addr: u32, fcnt: u32, 
     return full[0..len].*;
 }
 
-/// Checks a received MIC in constant time.
-pub fn verify(nwk_s_key: *const Key, dir: Direction, dev_addr: u32, fcnt: u32, msg: []const u8, mic: Mic) bool {
-    return std.crypto.timing_safe.eql(Mic, compute(nwk_s_key, dir, dev_addr, fcnt, msg), mic);
+/// Checks a received MIC in constant time. Fails with
+/// `error.AuthenticationFailed` like the std authenticated ciphers.
+pub fn verify(
+    nwk_s_key: *const Key,
+    dir: Direction,
+    dev_addr: u32,
+    fcnt: u32,
+    msg: []const u8,
+    mic: Mic,
+) std.crypto.errors.AuthenticationError!void {
+    if (!std.crypto.timing_safe.eql(Mic, compute(nwk_s_key, dir, dev_addr, fcnt, msg), mic)) {
+        return error.AuthenticationFailed;
+    }
 }
 
 const testing = std.testing;
@@ -104,12 +116,12 @@ test "verify rejects changes to msg, direction and the upper FCnt bits" {
     const msg = [_]u8{ 0x40, 0x44, 0x33, 0x22, 0x11, 0x00, 0x01, 0x00 };
     const mic = compute(&key, .uplink, 0x11223344, 0x00010001, &msg);
 
-    try testing.expect(verify(&key, .uplink, 0x11223344, 0x00010001, &msg, mic));
+    try verify(&key, .uplink, 0x11223344, 0x00010001, &msg, mic);
 
     var tampered = msg;
     tampered[7] ^= 0x01;
-    try testing.expect(!verify(&key, .uplink, 0x11223344, 0x00010001, &tampered, mic));
-    try testing.expect(!verify(&key, .downlink, 0x11223344, 0x00010001, &msg, mic));
+    try testing.expectError(error.AuthenticationFailed, verify(&key, .uplink, 0x11223344, 0x00010001, &tampered, mic));
+    try testing.expectError(error.AuthenticationFailed, verify(&key, .downlink, 0x11223344, 0x00010001, &msg, mic));
     // Same 16-bit FCnt on air, different 32-bit counter (§4.3.1.5).
-    try testing.expect(!verify(&key, .uplink, 0x11223344, 0x00000001, &msg, mic));
+    try testing.expectError(error.AuthenticationFailed, verify(&key, .uplink, 0x11223344, 0x00000001, &msg, mic));
 }

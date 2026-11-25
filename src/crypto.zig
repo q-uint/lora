@@ -43,7 +43,9 @@ pub fn aBlock(dir: Direction, dev_addr: u32, fcnt: u32, i: u8) [16]u8 {
 ///   FRMPayload = (pld | pad16) xor S, truncated to len(pld)
 ///
 /// The operation is its own inverse, so the same call decrypts.
-pub fn cryptFRMPayload(key: *const Key, dir: Direction, dev_addr: u32, fcnt: u32, data: []u8) void {
+///
+/// Asserts `data.len <= 255 * 16`, [TS001-1.0.4] §4.3.3 Table 12.
+pub fn cryptFrmPayload(key: *const Key, dir: Direction, dev_addr: u32, fcnt: u32, data: []u8) void {
     // i is a single octet in A_i, so at most 255 blocks.
     std.debug.assert(data.len <= 255 * 16);
     const ctx = Aes128.initEnc(key.*);
@@ -103,7 +105,7 @@ test "keystream is S_1 | S_2 over two blocks, truncated" {
 
     // 17 zero octets encrypt to the keystream itself: all of S_1 and the first octet of S_2.
     var data: [17]u8 = @splat(0);
-    cryptFRMPayload(&key, .uplink, 0x11223344, 5, &data);
+    cryptFrmPayload(&key, .uplink, 0x11223344, 5, &data);
     try testing.expectEqualSlices(u8, &s1, data[0..16]);
     try testing.expectEqual(s2[0], data[16]);
 }
@@ -112,14 +114,14 @@ test "decrypt inverts encrypt" {
     const key: Key = @splat(0x2B);
     const plain = "hello, LoRaWAN payload";
     var data = plain.*;
-    cryptFRMPayload(&key, .uplink, 0x11223344, 0x00010002, &data);
+    cryptFrmPayload(&key, .uplink, 0x11223344, 0x00010002, &data);
     try testing.expect(!std.mem.eql(u8, plain, &data));
-    cryptFRMPayload(&key, .uplink, 0x11223344, 0x00010002, &data);
+    cryptFrmPayload(&key, .uplink, 0x11223344, 0x00010002, &data);
     try testing.expectEqualSlices(u8, plain, &data);
 }
 
 test "empty payload is a no-op" {
     const key: Key = @splat(0);
     var data: [0]u8 = .{};
-    cryptFRMPayload(&key, .uplink, 0, 0, &data);
+    cryptFrmPayload(&key, .uplink, 0, 0, &data);
 }

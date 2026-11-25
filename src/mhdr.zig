@@ -52,17 +52,17 @@ pub const Major = enum(u2) {
     _,
 };
 
-pub const MHDR = struct {
+pub const Mhdr = struct {
     ftype: FType,
     major: Major = .lorawan_r1,
 
     /// RFU bits SHALL be set to 0 by the transmitter, [TS001-1.0.4] §1.1.
-    pub fn encode(self: MHDR) u8 {
+    pub fn encode(self: Mhdr) u8 {
         return @as(u8, @intFromEnum(self.ftype)) << 5 | @intFromEnum(self.major);
     }
 
     /// RFU bits SHALL be silently ignored by the receiver, [TS001-1.0.4] §1.1.
-    pub fn decode(byte: u8) MHDR {
+    pub fn decode(byte: u8) Mhdr {
         return .{
             .ftype = @enumFromInt(@as(u3, @truncate(byte >> 5))),
             .major = @enumFromInt(@as(u2, @truncate(byte))),
@@ -71,21 +71,21 @@ pub const MHDR = struct {
 };
 
 test "encode sets FType in bits [7:5] and Major in [1:0]" {
-    try std.testing.expectEqual(@as(u8, 0x40), (MHDR{ .ftype = .unconfirmed_data_up }).encode());
-    try std.testing.expectEqual(@as(u8, 0x80), (MHDR{ .ftype = .confirmed_data_up }).encode());
-    try std.testing.expectEqual(@as(u8, 0x60), (MHDR{ .ftype = .unconfirmed_data_down }).encode());
-    try std.testing.expectEqual(@as(u8, 0xE0), (MHDR{ .ftype = .proprietary }).encode());
+    try std.testing.expectEqual(0x40, (Mhdr{ .ftype = .unconfirmed_data_up }).encode());
+    try std.testing.expectEqual(0x80, (Mhdr{ .ftype = .confirmed_data_up }).encode());
+    try std.testing.expectEqual(0x60, (Mhdr{ .ftype = .unconfirmed_data_down }).encode());
+    try std.testing.expectEqual(0xE0, (Mhdr{ .ftype = .proprietary }).encode());
 }
 
 test "decode ignores RFU bits" {
-    const h = MHDR.decode(0b010_111_00);
+    const h = Mhdr.decode(0b010_111_00);
     try std.testing.expectEqual(FType.unconfirmed_data_up, h.ftype);
     try std.testing.expectEqual(Major.lorawan_r1, h.major);
 }
 
 test "roundtrip all frame types" {
     for (0..8) |v| {
-        const h = MHDR{ .ftype = @enumFromInt(v) };
-        try std.testing.expectEqual(h, MHDR.decode(h.encode()));
+        const h = Mhdr{ .ftype = @enumFromInt(v) };
+        try std.testing.expectEqual(h, Mhdr.decode(h.encode()));
     }
 }
