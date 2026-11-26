@@ -20,6 +20,8 @@ pub const FCtrl = fhdr.FCtrl;
 pub const mac_payload = @import("mac_payload.zig");
 pub const MacPayload = mac_payload.MacPayload;
 
+pub const mac_command = @import("mac_command.zig");
+
 pub const crypto = @import("crypto.zig");
 pub const Key = crypto.Key;
 pub const SessionKeys = crypto.SessionKeys;
