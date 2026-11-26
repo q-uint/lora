@@ -36,6 +36,9 @@ pub const JoinRequest = join.JoinRequest;
 pub const JoinAccept = join.JoinAccept;
 pub const deriveSessionKeys = join.deriveSessionKeys;
 
+pub const cf_list = @import("cf_list.zig");
+pub const CfList = cf_list.CfList;
+
 pub const settings = @import("settings.zig");
 pub const DlSettings = settings.DlSettings;
 pub const RxTimingSettings = settings.RxTimingSettings;
