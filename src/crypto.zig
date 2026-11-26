@@ -64,11 +64,7 @@ pub fn cryptFrmPayload(key: *const Key, dir: Direction, dev_addr: u32, fcnt: u32
 
 const testing = std.testing;
 
-fn hex(comptime s: []const u8) [s.len / 2]u8 {
-    var out: [s.len / 2]u8 = undefined;
-    _ = std.fmt.hexToBytes(&out, s) catch unreachable;
-    return out;
-}
+const hex = @import("test_util.zig").hex;
 
 // [FIPS-197] Appendix B, Cipher Example (Nb = 4, Nk = 4).
 // The output is the final state array read column by column.
