@@ -2,7 +2,7 @@
 
 A small Zig library for encoding and decoding LoRaWAN® 1.0.4 data frames, with a C API.
 
-It builds and parses the PHYPayload of data frames (MHDR, FHDR, FPort, FRMPayload and MIC) as defined in TS001-1.0.4 §4. It encrypts FRMPayload with AES-128 (§4.3.3) and computes and checks the MIC with AES-CMAC (§4.4). Parsing does no cryptography and allocates nothing. The decoded fields borrow from the input buffer, and MIC verification and decryption are separate steps that run once the receiver knows the full 32-bit frame counter. Join-Request and Join-Accept frames (§6.2) and MAC command parsing (§5) are not implemented yet.
+It builds and parses the PHYPayload of data frames (MHDR, FHDR, FPort, FRMPayload and MIC) as defined in TS001-1.0.4 §4. It encrypts FRMPayload with AES-128 (§4.3.3) and computes and checks the MIC with AES-CMAC (§4.4). Parsing does no cryptography and allocates nothing. The decoded fields borrow from the input buffer, and MIC verification and decryption are separate steps that run once the receiver knows the full 32-bit frame counter. Over-the-air activation is covered as well: Join-Request and Join-Accept frames and session key derivation (§6.2). MAC command parsing (§5) is not implemented yet.
 
 Two helpers sit next to the frame code and are never called by it. `fcnt.infer` reconstructs the 32-bit frame counter from the 16-bit FCnt field. TS001-1.0.4 leaves that algorithm open (§4.3.1.5), so it is a default you can replace with your own. `region.maxMacPayloadLen` returns the maximum MACPayload size M for every regional plan in RP002-1.0.5, including the repeater compatible and dwell time variants, so callers can apply the length rule of TS001-1.0.4 §4.1.
 

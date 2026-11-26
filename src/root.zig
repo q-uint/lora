@@ -29,6 +29,15 @@ pub const Mic = mic.Mic;
 
 pub const phy_payload = @import("phy_payload.zig");
 
+pub const join = @import("join.zig");
+pub const JoinRequest = join.JoinRequest;
+pub const JoinAccept = join.JoinAccept;
+pub const deriveSessionKeys = join.deriveSessionKeys;
+
+pub const settings = @import("settings.zig");
+pub const DlSettings = settings.DlSettings;
+pub const RxTimingSettings = settings.RxTimingSettings;
+
 pub const fcnt = @import("fcnt.zig");
 
 pub const region = @import("region.zig");
