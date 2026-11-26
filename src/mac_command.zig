@@ -10,7 +10,7 @@ const settings = @import("settings.zig");
 const DlSettings = settings.DlSettings;
 const RxTimingSettings = settings.RxTimingSettings;
 
-/// Command identifiers, [TS001-1.0.4] §5 Table 14.
+/// Command identifiers, [TS001-1.0.4] §5 Table 14 and §12 Table 61.
 pub const Cid = enum(u8) {
     link_check = 0x02,
     link_adr = 0x03,
@@ -22,10 +22,14 @@ pub const Cid = enum(u8) {
     tx_param_setup = 0x09,
     dl_channel = 0x0A,
     device_time = 0x0D,
+    ping_slot_info = 0x10,
+    ping_slot_channel = 0x11,
+    beacon_freq = 0x13,
     _,
 
     /// Payload length in octets, excluding the CID. Null for CIDs without a
-    /// definition in [TS001-1.0.4] §5 (RFU, Class B, Class C, proprietary).
+    /// definition in [TS001-1.0.4] (RFU, deprecated BeaconTiming, Class C,
+    /// proprietary).
     pub fn payloadLen(cid: Cid, dir: Direction) ?u8 {
         return switch (dir) {
             .uplink => lenIn(Uplink, cid),
@@ -45,7 +49,7 @@ fn lenOf(comptime T: type) u8 {
     return if (T == void) 0 else T.len;
 }
 
-/// Commands sent by the end-device, [TS001-1.0.4] §5 Table 14.
+/// Commands sent by the end-device, [TS001-1.0.4] Tables 14 and 61.
 pub const Uplink = union(enum) {
     /// LinkCheckReq, no payload, §5.1.
     link_check,
@@ -62,6 +66,9 @@ pub const Uplink = union(enum) {
     dl_channel: DlChannelAns,
     /// DeviceTimeReq, no payload, §5.9.
     device_time,
+    ping_slot_info: PingSlotInfoReq,
+    ping_slot_channel: PingSlotChannelAns,
+    beacon_freq: BeaconFreqAns,
 
     pub fn decode(cmd: Command) DecodeError!Uplink {
         return decodeAs(Uplink, cmd);
@@ -73,7 +80,7 @@ pub const Uplink = union(enum) {
     }
 };
 
-/// Commands sent by the Network Server, [TS001-1.0.4] §5 Table 14.
+/// Commands sent by the Network Server, [TS001-1.0.4] Tables 14 and 61.
 pub const Downlink = union(enum) {
     link_check: LinkCheckAns,
     link_adr: LinkAdrReq,
@@ -86,6 +93,10 @@ pub const Downlink = union(enum) {
     tx_param_setup: TxParamSetupReq,
     dl_channel: DlChannelReq,
     device_time: DeviceTimeAns,
+    /// PingSlotInfoAns, no payload, §12.1.
+    ping_slot_info,
+    ping_slot_channel: PingSlotChannelReq,
+    beacon_freq: BeaconFreqReq,
 
     pub fn decode(cmd: Command) DecodeError!Downlink {
         return decodeAs(Downlink, cmd);
@@ -489,6 +500,112 @@ pub const DeviceTimeAns = struct {
     }
 };
 
+/// PingSlotInfoReq, [TS001-1.0.4] §12.1 Tables 62 and 63.
+///
+///   Bits          | 7:3 |     2:0
+///   PingSlotParam | RFU | Periodicity
+pub const PingSlotInfoReq = struct {
+    /// Ping slot every 0.96 × 2^periodicity s.
+    periodicity: u3,
+
+    pub const len = 1;
+
+    pub fn encode(self: PingSlotInfoReq) [len]u8 {
+        return .{self.periodicity};
+    }
+
+    pub fn decode(bytes: *const [len]u8) PingSlotInfoReq {
+        return .{ .periodicity = @truncate(bytes[0]) };
+    }
+};
+
+/// BeaconFreqReq, [TS001-1.0.4] §12.2 Table 64.
+pub const BeaconFreqReq = struct {
+    /// Beacon frequency in 100 Hz steps. 0 selects the default plan.
+    frequency: u24,
+
+    pub const len = 3;
+
+    pub fn encode(self: BeaconFreqReq) [len]u8 {
+        var out: [len]u8 = undefined;
+        std.mem.writeInt(u24, &out, self.frequency, .little);
+        return out;
+    }
+
+    pub fn decode(bytes: *const [len]u8) BeaconFreqReq {
+        return .{ .frequency = std.mem.readInt(u24, bytes, .little) };
+    }
+};
+
+/// BeaconFreqAns, [TS001-1.0.4] §12.2 Tables 65 to 67.
+///
+///   Bits   | 7:1 |          0
+///   Status | RFU | Beacon frequency ok
+pub const BeaconFreqAns = struct {
+    beacon_frequency_ok: bool,
+
+    pub const len = 1;
+
+    pub fn encode(self: BeaconFreqAns) [len]u8 {
+        return .{statusBits(.{self.beacon_frequency_ok})};
+    }
+
+    pub fn decode(bytes: *const [len]u8) BeaconFreqAns {
+        return .{ .beacon_frequency_ok = bit(bytes[0], 0) };
+    }
+};
+
+/// PingSlotChannelReq, [TS001-1.0.4] §12.3 Tables 68 and 69.
+///
+///   Octets             |     3     |  1
+///   PingSlotChannelReq | Frequency | DR
+///
+///   Bits | 7:4 |   3:0
+///   DR   | RFU | DataRate
+pub const PingSlotChannelReq = struct {
+    /// Ping slot frequency in 100 Hz steps. 0 selects the default plan.
+    frequency: u24,
+    /// Region specific [RP002-1.0.5].
+    data_rate: u4,
+
+    pub const len = 4;
+
+    pub fn encode(self: PingSlotChannelReq) [len]u8 {
+        var out: [len]u8 = undefined;
+        std.mem.writeInt(u24, out[0..3], self.frequency, .little);
+        out[3] = self.data_rate;
+        return out;
+    }
+
+    pub fn decode(bytes: *const [len]u8) PingSlotChannelReq {
+        return .{ .frequency = std.mem.readInt(u24, bytes[0..3], .little), .data_rate = @truncate(bytes[3]) };
+    }
+};
+
+/// PingSlotChannelAns, [TS001-1.0.4] §12.3 Tables 70 to 72.
+///
+///   Bits   | 7:2 |      1       |          0
+///   Status | RFU | Data rate ok | Channel frequency ok
+pub const PingSlotChannelAns = struct {
+    channel_frequency_ok: bool,
+    data_rate_ok: bool,
+
+    pub const len = 1;
+
+    /// Both bits set, [TS001-1.0.4] §12.3.
+    pub fn accepted(self: PingSlotChannelAns) bool {
+        return self.channel_frequency_ok and self.data_rate_ok;
+    }
+
+    pub fn encode(self: PingSlotChannelAns) [len]u8 {
+        return .{statusBits(.{ self.channel_frequency_ok, self.data_rate_ok })};
+    }
+
+    pub fn decode(bytes: *const [len]u8) PingSlotChannelAns {
+        return .{ .channel_frequency_ok = bit(bytes[0], 0), .data_rate_ok = bit(bytes[0], 1) };
+    }
+};
+
 /// RFU bits are sent as 0, [TS001-1.0.4] §1.1.
 fn statusBits(bits: anytype) u8 {
     var b: u8 = 0;
@@ -568,14 +685,18 @@ test "payload lengths (Table 14)" {
         .{ Cid.tx_param_setup, 0, 1 },
         .{ Cid.dl_channel, 1, 4 },
         .{ Cid.device_time, 0, 5 },
+        // Tables 62 to 70.
+        .{ Cid.ping_slot_info, 1, 0 },
+        .{ Cid.ping_slot_channel, 1, 4 },
+        .{ Cid.beacon_freq, 1, 3 },
     };
     inline for (cases) |c| {
         try testing.expectEqual(c[1], c[0].payloadLen(.uplink));
         try testing.expectEqual(c[2], c[0].payloadLen(.downlink));
     }
-    // Not in Table 14 (0x00, 0x01), then the RFU, Class B, Class C, RFU and
-    // proprietary ranges.
-    for ([_]u8{ 0x00, 0x01, 0x0B, 0x0C, 0x0E, 0x0F, 0x10, 0x1F, 0x20, 0x30, 0x7F, 0x80, 0xFF }) |b| {
+    // Not in Table 14 (0x00, 0x01), RFU, deprecated BeaconTiming (§12.4),
+    // undefined Class B, Class C, RFU and proprietary.
+    for ([_]u8{ 0x00, 0x01, 0x0B, 0x0C, 0x0E, 0x0F, 0x12, 0x14, 0x1F, 0x20, 0x30, 0x7F, 0x80, 0xFF }) |b| {
         const cid: Cid = @enumFromInt(b);
         try testing.expectEqual(null, cid.payloadLen(.uplink));
         try testing.expectEqual(null, cid.payloadLen(.downlink));
@@ -611,12 +732,13 @@ test "iterate a downlink sequence" {
 }
 
 test "unknown command stops the sequence" {
-    // DutyCycleAns, then Class B PingSlotInfoReq (0x10), then LinkCheckReq.
-    const bytes = [_]u8{ 0x04, 0x10, 0x00, 0x02 };
+    // DutyCycleAns, then the deprecated BeaconTimingReq (0x12, §12.4), then
+    // LinkCheckReq.
+    const bytes = [_]u8{ 0x04, 0x12, 0x02 };
     var it = iterate(&bytes, .uplink);
     _ = (try it.next()).?;
     try testing.expectError(error.UnknownCommand, it.next());
-    try testing.expectEqualSlices(u8, &.{ 0x10, 0x00, 0x02 }, it.bytes[it.index..]);
+    try testing.expectEqualSlices(u8, &.{ 0x12, 0x02 }, it.bytes[it.index..]);
 }
 
 test "truncated payload" {
@@ -680,6 +802,11 @@ test "downlink commands, bit positions from §5" {
     try expectDownlink(.{ .dl_channel = .{ .ch_index = 3, .frequency = 8695250 } }, &.{ 0x0A, 3, 0xD2, 0xAD, 0x84 });
     // Table 50, the §5.9 example 1139322288 s = 0x43E8ADB0.
     try expectDownlink(.{ .device_time = .{ .seconds = 1139322288, .fraction = 128 } }, &.{ 0x0D, 0xB0, 0xAD, 0xE8, 0x43, 128 });
+    try expectDownlink(.ping_slot_info, &.{0x10});
+    // Tables 68 and 69.
+    try expectDownlink(.{ .ping_slot_channel = .{ .frequency = 8695250, .data_rate = 3 } }, &.{ 0x11, 0xD2, 0xAD, 0x84, 0x03 });
+    // Table 64.
+    try expectDownlink(.{ .beacon_freq = .{ .frequency = 8695250 } }, &.{ 0x13, 0xD2, 0xAD, 0x84 });
 }
 
 test "uplink commands, bit positions from §5" {
@@ -698,6 +825,12 @@ test "uplink commands, bit positions from §5" {
     // Table 41.
     try expectUplink(.{ .dl_channel = .{ .channel_frequency_ok = false, .uplink_frequency_exists = true } }, &.{ 0x0A, 0x02 });
     try expectUplink(.device_time, &.{0x0D});
+    // Table 63.
+    try expectUplink(.{ .ping_slot_info = .{ .periodicity = 7 } }, &.{ 0x10, 0x07 });
+    // Table 71.
+    try expectUplink(.{ .ping_slot_channel = .{ .channel_frequency_ok = false, .data_rate_ok = true } }, &.{ 0x11, 0x02 });
+    // Table 66.
+    try expectUplink(.{ .beacon_freq = .{ .beacon_frequency_ok = true } }, &.{ 0x13, 0x01 });
 }
 
 test "RFU bits are ignored on decode (§1.1)" {
@@ -708,6 +841,9 @@ test "RFU bits are ignored on decode (§1.1)" {
     try testing.expectEqual(0, (LinkAdrReq.decode(&.{ 0, 0, 0, 0x80 })).ch_mask_cntl);
     const tx = TxParamSetupReq.decode(&.{0xC0});
     try testing.expect(!tx.uplink_dwell_time and !tx.downlink_dwell_time);
+    try testing.expectEqual(3, PingSlotInfoReq.decode(&.{0xFB}).periodicity);
+    try testing.expectEqual(3, PingSlotChannelReq.decode(&.{ 0, 0, 0, 0xF3 }).data_rate);
+    try testing.expect(!BeaconFreqAns.decode(&.{0xFE}).beacon_frequency_ok);
 }
 
 test "accepted needs every status bit" {
@@ -716,6 +852,7 @@ test "accepted needs every status bit" {
     try testing.expect(!(RxParamSetupAns{ .channel_ack = true, .rx2_data_rate_ack = false, .rx1_dr_offset_ack = true }).accepted());
     try testing.expect((NewChannelAns{ .channel_frequency_ok = true, .data_rate_range_ok = true }).accepted());
     try testing.expect(!(DlChannelAns{ .channel_frequency_ok = true, .uplink_frequency_exists = false }).accepted());
+    try testing.expect(!(PingSlotChannelAns{ .channel_frequency_ok = false, .data_rate_ok = true }).accepted());
 }
 
 test "MaxEIRP encoding (Table 48)" {

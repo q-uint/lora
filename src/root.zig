@@ -51,6 +51,9 @@ pub const Region = region.Region;
 pub const data_rate = @import("data_rate.zig");
 pub const DataRate = data_rate.DataRate;
 
+pub const class_b = @import("class_b.zig");
+pub const Beacon = class_b.Beacon;
+
 test {
     @import("std").testing.refAllDecls(@This());
 }
