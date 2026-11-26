@@ -25,6 +25,14 @@ test "struct layouts match" {
     try expectSameLayout(c.SessionKeys, h.lora_session_keys);
     try expectSameLayout(c.DataFrame, h.lora_data_frame);
     try expectSameLayout(c.ParsedFrame, h.lora_parsed_frame);
+    try expectSameLayout(c.JoinRequest, h.lora_join_request);
+    try expectSameLayout(c.JoinAccept, h.lora_join_accept);
+}
+
+test "join frame lengths match" {
+    try testing.expectEqual(c.join_request_len, h.LORA_JOIN_REQUEST_LEN);
+    try testing.expectEqual(c.join_accept_min_len, h.LORA_JOIN_ACCEPT_MIN_LEN);
+    try testing.expectEqual(c.join_accept_max_len, h.LORA_JOIN_ACCEPT_MAX_LEN);
 }
 
 test "status codes match" {
@@ -40,6 +48,9 @@ test "status codes match" {
     try testing.expectEqual(c.err_too_long, h.LORA_ERR_TOO_LONG);
     try testing.expectEqual(c.err_no_space_left, h.LORA_ERR_NO_SPACE_LEFT);
     try testing.expectEqual(c.err_authentication_failed, h.LORA_ERR_AUTHENTICATION_FAILED);
+    try testing.expectEqual(c.err_invalid_length, h.LORA_ERR_INVALID_LENGTH);
+    try testing.expectEqual(c.err_not_join_request, h.LORA_ERR_NOT_JOIN_REQUEST);
+    try testing.expectEqual(c.err_not_join_accept, h.LORA_ERR_NOT_JOIN_ACCEPT);
 }
 
 test "enum values match the Zig enums" {

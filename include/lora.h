@@ -43,8 +43,14 @@ typedef enum lora_status {
     LORA_ERR_TOO_LONG = -9,
     /* Output buffer too small. */
     LORA_ERR_NO_SPACE_LEFT = -10,
-    /* MIC does not match, [TS001-1.0.4] §4.4. */
-    LORA_ERR_AUTHENTICATION_FAILED = -11
+    /* MIC does not match, [TS001-1.0.4] §4.4, §6.2.5 and §6.2.6. */
+    LORA_ERR_AUTHENTICATION_FAILED = -11,
+    /* Join frame is not one of its allowed lengths, [TS001-1.0.4] §6.2. */
+    LORA_ERR_INVALID_LENGTH = -12,
+    /* FType is not Join-Request, [TS001-1.0.4] §4.2.1 Table 4. */
+    LORA_ERR_NOT_JOIN_REQUEST = -13,
+    /* FType is not Join-Accept, [TS001-1.0.4] §4.2.1 Table 4. */
+    LORA_ERR_NOT_JOIN_ACCEPT = -14
 } lora_status;
 
 /* Frame direction. The value is the Dir field of the A_i and B0 blocks,
@@ -194,6 +200,65 @@ lora_status lora_verify_mic(const uint8_t *frame, size_t len, const uint8_t nwk_
  */
 lora_status lora_decrypt_payload(const uint8_t *frame, size_t len, const lora_session_keys *keys,
                                  uint32_t fcnt, uint8_t *out, size_t out_cap, size_t *out_len);
+
+/*
+ * Join procedure, [TS001-1.0.4] §6.2. EUIs and multi-octet fields are sent
+ * little endian, §1.1.
+ *
+ * Fields are numbers, the library writes the wire order. An EUI goes in as
+ * written, e.g. .dev_eui = 0x70B3D57ED0000001. Bytes copied from a frame are
+ * already in wire order, read them with lora_join_request_parse.
+ */
+
+/* MHDR | JoinEUI | DevEUI | DevNonce | MIC, [TS001-1.0.4] §6.2.5 Table 53. */
+#define LORA_JOIN_REQUEST_LEN 23
+/* Join-Accept frame without and with CFList, [TS001-1.0.4] §6.2.6 Table 54. */
+#define LORA_JOIN_ACCEPT_MIN_LEN 17
+#define LORA_JOIN_ACCEPT_MAX_LEN 33
+
+typedef struct lora_join_request {
+    uint64_t join_eui;
+    uint64_t dev_eui;
+    uint16_t dev_nonce; /* never reused for a given JoinEUI, §6.2.5 */
+} lora_join_request;
+
+/* Join-Accept fields, [TS001-1.0.4] §6.2.6 Tables 54 and 55. Values out of
+ * range for their field give LORA_ERR_INVALID_ARGUMENT on encode. */
+typedef struct lora_join_accept {
+    uint32_t join_nonce;   /* 24 bits */
+    uint32_t net_id;       /* 24 bits */
+    uint32_t dev_addr;
+    uint8_t rx1_dr_offset; /* 3 bits, DLSettings Table 55 */
+    uint8_t rx2_data_rate; /* 4 bits, DLSettings Table 55 */
+    uint8_t rx_delay;      /* Del, 4 bits, §5.7 Tables 44 and 45 */
+    bool has_cf_list;
+    uint8_t cf_list[16];   /* region specific, [RP002] */
+} lora_join_accept;
+
+/* Builds a Join-Request frame with its AppKey MIC, [TS001-1.0.4] §6.2.5. */
+lora_status lora_join_request_encode(const lora_join_request *req, const uint8_t app_key[16],
+                                     uint8_t *out, size_t out_cap, size_t *out_len);
+
+/* Reads the fields of a Join-Request frame. Does no cryptography. */
+lora_status lora_join_request_parse(const uint8_t *frame, size_t len, lora_join_request *out);
+
+/* Checks the MIC of a Join-Request frame, [TS001-1.0.4] §6.2.5. Returns
+ * LORA_OK or LORA_ERR_AUTHENTICATION_FAILED. */
+lora_status lora_join_request_verify_mic(const uint8_t *frame, size_t len, const uint8_t app_key[16]);
+
+/* Builds an encrypted Join-Accept frame (Network side), [TS001-1.0.4] §6.2.6. */
+lora_status lora_join_accept_encode(const lora_join_accept *acc, const uint8_t app_key[16],
+                                    uint8_t *out, size_t out_cap, size_t *out_len);
+
+/* Decrypts a Join-Accept frame and checks its MIC (end-device side),
+ * [TS001-1.0.4] §6.2.6. *out is written only on LORA_OK. */
+lora_status lora_join_accept_decrypt(const uint8_t *frame, size_t len, const uint8_t app_key[16],
+                                     lora_join_accept *out);
+
+/* Derives NwkSKey and AppSKey, [TS001-1.0.4] §6.2.6. join_nonce and net_id
+ * are 24 bits. */
+lora_status lora_derive_session_keys(const uint8_t app_key[16], uint32_t join_nonce, uint32_t net_id,
+                                     uint16_t dev_nonce, lora_session_keys *out);
 
 #ifdef __cplusplus
 }

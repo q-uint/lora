@@ -22,6 +22,9 @@ pub const err_fcnt_mismatch: c_int = -8;
 pub const err_too_long: c_int = -9;
 pub const err_no_space_left: c_int = -10;
 pub const err_authentication_failed: c_int = -11;
+pub const err_invalid_length: c_int = -12;
+pub const err_not_join_request: c_int = -13;
+pub const err_not_join_accept: c_int = -14;
 
 // Direction, see `lora_direction`. Values are the Dir field of A_i and B0,
 // [TS001-1.0.4] §4.3.3 Table 12 and §4.4 Table 13.
@@ -133,10 +136,17 @@ pub const ParsedFrame = extern struct {
 const AnyError = lora.phy_payload.EncodeError ||
     lora.phy_payload.ParseError ||
     lora.phy_payload.VerifyError ||
-    lora.phy_payload.DecryptError;
+    lora.phy_payload.DecryptError ||
+    lora.JoinRequest.EncodeError ||
+    lora.JoinRequest.ParseError ||
+    lora.JoinAccept.EncodeError ||
+    lora.JoinAccept.DecryptError;
 
 fn status(e: AnyError) c_int {
     return switch (e) {
+        error.InvalidLength => err_invalid_length,
+        error.NotJoinRequest => err_not_join_request,
+        error.NotJoinAccept => err_not_join_accept,
         error.AuthenticationFailed => err_authentication_failed,
         error.Truncated => err_truncated,
         error.NoSpaceLeft => err_no_space_left,
@@ -294,6 +304,139 @@ export fn lora_decrypt_payload(
     return ok;
 }
 
+// Join procedure, [TS001-1.0.4] §6.2.
+
+/// See `lora_join_request`.
+pub const JoinRequest = extern struct {
+    join_eui: u64,
+    dev_eui: u64,
+    dev_nonce: u16,
+};
+
+/// See `lora_join_accept`. 24-bit and bit-field values are range checked on
+/// encode, [TS001-1.0.4] §6.2.6 Tables 54 and 55, §5.7 Table 44.
+pub const JoinAccept = extern struct {
+    join_nonce: u32,
+    net_id: u32,
+    dev_addr: u32,
+    rx1_dr_offset: u8,
+    rx2_data_rate: u8,
+    rx_delay: u8,
+    has_cf_list: bool,
+    cf_list: [16]u8,
+};
+
+pub const join_request_len: usize = lora.JoinRequest.frame_len;
+pub const join_accept_min_len: usize = lora.JoinAccept.min_frame_len;
+pub const join_accept_max_len: usize = lora.JoinAccept.max_frame_len;
+
+/// Builds a Join-Request frame, [TS001-1.0.4] §6.2.5.
+export fn lora_join_request_encode(
+    req: ?*const JoinRequest,
+    app_key: ?*const [16]u8,
+    out: ?[*]u8,
+    out_cap: usize,
+    out_len: ?*usize,
+) c_int {
+    const r = req orelse return err_invalid_argument;
+    const key = app_key orelse return err_invalid_argument;
+    const buf = mutSlice(out, out_cap) orelse return err_invalid_argument;
+    const len_out = out_len orelse return err_invalid_argument;
+    const f = (lora.JoinRequest{ .join_eui = r.join_eui, .dev_eui = r.dev_eui, .dev_nonce = r.dev_nonce })
+        .encode(key, buf) catch |e| return status(e);
+    len_out.* = f.len;
+    return ok;
+}
+
+/// Reads the fields of a Join-Request frame without cryptography, [TS001-1.0.4] §6.2.5.
+export fn lora_join_request_parse(frame: ?[*]const u8, len: usize, out: ?*JoinRequest) c_int {
+    const bytes = constSlice(frame, len) orelse return err_invalid_argument;
+    const o = out orelse return err_invalid_argument;
+    const p = lora.JoinRequest.parse(bytes) catch |e| return status(e);
+    o.* = .{ .join_eui = p.request.join_eui, .dev_eui = p.request.dev_eui, .dev_nonce = p.request.dev_nonce };
+    return ok;
+}
+
+/// Checks the MIC of a Join-Request frame with AppKey, [TS001-1.0.4] §6.2.5.
+export fn lora_join_request_verify_mic(frame: ?[*]const u8, len: usize, app_key: ?*const [16]u8) c_int {
+    const bytes = constSlice(frame, len) orelse return err_invalid_argument;
+    const key = app_key orelse return err_invalid_argument;
+    const p = lora.JoinRequest.parse(bytes) catch |e| return status(e);
+    p.verifyMic(key) catch |e| return status(e);
+    return ok;
+}
+
+/// Builds an encrypted Join-Accept frame (Network side), [TS001-1.0.4] §6.2.6.
+export fn lora_join_accept_encode(
+    acc: ?*const JoinAccept,
+    app_key: ?*const [16]u8,
+    out: ?[*]u8,
+    out_cap: usize,
+    out_len: ?*usize,
+) c_int {
+    const a = acc orelse return err_invalid_argument;
+    const key = app_key orelse return err_invalid_argument;
+    const buf = mutSlice(out, out_cap) orelse return err_invalid_argument;
+    const len_out = out_len orelse return err_invalid_argument;
+    const join_nonce = std.math.cast(u24, a.join_nonce) orelse return err_invalid_argument;
+    const net_id = std.math.cast(u24, a.net_id) orelse return err_invalid_argument;
+    const rx1_dr_offset = std.math.cast(u3, a.rx1_dr_offset) orelse return err_invalid_argument;
+    const rx2_data_rate = std.math.cast(u4, a.rx2_data_rate) orelse return err_invalid_argument;
+    const del = std.math.cast(u4, a.rx_delay) orelse return err_invalid_argument;
+    const f = (lora.JoinAccept{
+        .join_nonce = join_nonce,
+        .net_id = net_id,
+        .dev_addr = a.dev_addr,
+        .dl_settings = .{ .rx1_dr_offset = rx1_dr_offset, .rx2_data_rate = rx2_data_rate },
+        .rx_delay = .{ .del = del },
+        .cf_list = if (a.has_cf_list) a.cf_list else null,
+    }).encode(key, buf) catch |e| return status(e);
+    len_out.* = f.len;
+    return ok;
+}
+
+/// Decrypts a Join-Accept frame and checks its MIC (end-device side),
+/// [TS001-1.0.4] §6.2.6. `out` is written only on success.
+export fn lora_join_accept_decrypt(
+    frame: ?[*]const u8,
+    len: usize,
+    app_key: ?*const [16]u8,
+    out: ?*JoinAccept,
+) c_int {
+    const bytes = constSlice(frame, len) orelse return err_invalid_argument;
+    const key = app_key orelse return err_invalid_argument;
+    const o = out orelse return err_invalid_argument;
+    const a = lora.JoinAccept.decrypt(bytes, key) catch |e| return status(e);
+    o.* = .{
+        .join_nonce = a.join_nonce,
+        .net_id = a.net_id,
+        .dev_addr = a.dev_addr,
+        .rx1_dr_offset = a.dl_settings.rx1_dr_offset,
+        .rx2_data_rate = a.dl_settings.rx2_data_rate,
+        .rx_delay = a.rx_delay.del,
+        .has_cf_list = a.cf_list != null,
+        .cf_list = a.cf_list orelse @splat(0),
+    };
+    return ok;
+}
+
+/// Derives NwkSKey and AppSKey, [TS001-1.0.4] §6.2.6.
+export fn lora_derive_session_keys(
+    app_key: ?*const [16]u8,
+    join_nonce: u32,
+    net_id: u32,
+    dev_nonce: u16,
+    out: ?*SessionKeys,
+) c_int {
+    const key = app_key orelse return err_invalid_argument;
+    const o = out orelse return err_invalid_argument;
+    const jn = std.math.cast(u24, join_nonce) orelse return err_invalid_argument;
+    const ni = std.math.cast(u24, net_id) orelse return err_invalid_argument;
+    const k = lora.deriveSessionKeys(key, jn, ni, dev_nonce);
+    o.* = .{ .nwk_s_key = k.nwk_s_key, .app_s_key = k.app_s_key };
+    return ok;
+}
+
 const testing = std.testing;
 
 test "region mapping covers every Zig region exactly once" {
@@ -401,4 +544,54 @@ test "lora_max_mac_payload_len" {
     try testing.expectEqual(err_invalid_argument, lora_max_mac_payload_len(0, 2, 0, 0));
     try testing.expectEqual(err_invalid_argument, lora_max_mac_payload_len(0, 0, 16, 0));
     try testing.expectEqual(err_invalid_argument, lora_max_mac_payload_len(0, 0, 0, 1 << 3));
+}
+
+test "join through the C ABI" {
+    const app_key: [16]u8 = @splat(0x42);
+    var buf: [64]u8 = undefined;
+    var n: usize = 0;
+
+    const req = JoinRequest{ .join_eui = 1, .dev_eui = 2, .dev_nonce = 3 };
+    try testing.expectEqual(ok, lora_join_request_encode(&req, &app_key, &buf, buf.len, &n));
+    try testing.expectEqual(join_request_len, n);
+    var req_out: JoinRequest = undefined;
+    try testing.expectEqual(ok, lora_join_request_parse(&buf, n, &req_out));
+    try testing.expectEqual(req, req_out);
+    try testing.expectEqual(ok, lora_join_request_verify_mic(&buf, n, &app_key));
+    buf[18] ^= 1;
+    try testing.expectEqual(err_authentication_failed, lora_join_request_verify_mic(&buf, n, &app_key));
+    try testing.expectEqual(err_invalid_length, lora_join_request_parse(&buf, n - 1, &req_out));
+
+    var acc = std.mem.zeroes(JoinAccept);
+    acc.join_nonce = 0x010203;
+    acc.net_id = 0x111213;
+    acc.dev_addr = 0x21222324;
+    acc.rx1_dr_offset = 2;
+    acc.rx2_data_rate = 3;
+    acc.rx_delay = 5;
+    acc.has_cf_list = true;
+    acc.cf_list = @splat(7);
+    try testing.expectEqual(ok, lora_join_accept_encode(&acc, &app_key, &buf, buf.len, &n));
+    try testing.expectEqual(join_accept_max_len, n);
+    var acc_out: JoinAccept = undefined;
+    try testing.expectEqual(ok, lora_join_accept_decrypt(&buf, n, &app_key, &acc_out));
+    try testing.expectEqual(acc, acc_out);
+    const mhdr = buf[0];
+    buf[0] = 0x00; // FType Join-Request, Table 4
+    try testing.expectEqual(err_not_join_accept, lora_join_accept_decrypt(&buf, n, &app_key, &acc_out));
+    buf[0] = mhdr;
+
+    // Out of range fields, Tables 54, 55 and 44.
+    acc.join_nonce = 1 << 24;
+    try testing.expectEqual(err_invalid_argument, lora_join_accept_encode(&acc, &app_key, &buf, buf.len, &n));
+    acc.join_nonce = 0;
+    acc.rx1_dr_offset = 8;
+    try testing.expectEqual(err_invalid_argument, lora_join_accept_encode(&acc, &app_key, &buf, buf.len, &n));
+
+    var keys: SessionKeys = undefined;
+    try testing.expectEqual(ok, lora_derive_session_keys(&app_key, 0x010203, 0x111213, 3, &keys));
+    const direct = lora.deriveSessionKeys(&app_key, 0x010203, 0x111213, 3);
+    try testing.expectEqualSlices(u8, &direct.nwk_s_key, &keys.nwk_s_key);
+    try testing.expectEqualSlices(u8, &direct.app_s_key, &keys.app_s_key);
+    try testing.expectEqual(err_invalid_argument, lora_derive_session_keys(&app_key, 1 << 24, 0, 0, &keys));
 }
