@@ -63,4 +63,23 @@ pub fn build(b: *std.Build) void {
     c_test_mod.linkLibrary(lib);
     const c_test_exe = b.addExecutable(.{ .name = "test_lora_c", .root_module = c_test_mod });
     test_step.dependOn(&b.addRunArtifact(c_test_exe).step);
+
+    // Examples, built by the test step and run with `zig build <name>`.
+    const examples = .{
+        .{ "bitflip", "examples/bitflip.zig", "A Network Server changes an encrypted payload" },
+        .{ "fcnt-reuse", "examples/fcnt_reuse.zig", "A listener decrypts frames with a reused FCnt" },
+    };
+    inline for (examples) |e| {
+        const exe = b.addExecutable(.{
+            .name = e[0],
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(e[1]),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{.{ .name = "lora", .module = mod }},
+            }),
+        });
+        test_step.dependOn(&exe.step);
+        b.step(e[0], e[2]).dependOn(&b.addRunArtifact(exe).step);
+    }
 }

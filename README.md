@@ -22,6 +22,14 @@ zig build        # liblora (static and shared) and include/lora.h in zig-out/
 
 From Zig, import the `lora` module and start at `phy_payload.encode` and `phy_payload.parse`.
 
+## Security notes
+
+The MIC is computed with NwkSKey (§4.4), which the Network Server holds. A valid MIC shows that the end-device or the Network Server built the frame, not that the end-device did.
+
+FRMPayload is encrypted with AES in counter mode (§4.3.3). This hides the content from the Network Server but does not protect it. Flipping a ciphertext bit flips the same plaintext bit, and the Network Server can compute a new MIC. Knowing where a field sits is enough to change it, and knowing its current value is enough to set it to any value. `zig build bitflip` runs `examples/bitflip.zig`, which does both without AppSKey. If a payload has to be attributable to the end-device, the device has to add its own MAC or signature with a key the Network Server does not have.
+
+The keystream depends on DevAddr, direction and the 32-bit frame counter. A counter value reused with the same keys repeats the keystream, so known plaintext in one frame reveals the other. `zig build fcnt-reuse` shows this for a listener without any key. End-devices must not reuse FCntUp (§4.3.1.5), and ABP devices must not reset their counters (§6.3).
+
 ## References
 
 - [TS001-1.0.4] LoRa Alliance, *LoRaWAN L2 1.0.4 Specification*, October 2020. https://resources.lora-alliance.org/home/ts001-1-0-4-lorawan-l2-1-0-4-specification
