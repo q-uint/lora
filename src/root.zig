@@ -48,6 +48,9 @@ pub const fcnt = @import("fcnt.zig");
 pub const region = @import("region.zig");
 pub const Region = region.Region;
 
+pub const data_rate = @import("data_rate.zig");
+pub const DataRate = data_rate.DataRate;
+
 test {
     @import("std").testing.refAllDecls(@This());
 }
